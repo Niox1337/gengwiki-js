@@ -1,0 +1,57 @@
+{
+  "name": "gengwiki",
+  "version": "0.1.0",
+  "description": "JavaScript and TypeScript SDK for gengwiki, local first with the API as a fallback",
+  "license": "MIT",
+  "author": "Zhixiang Feng <contact@zhixiangfeng.com>",
+  "homepage": "https://gengwiki.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Niox1337/gengwiki-js.git"
+  },
+  "keywords": [
+    "gengwiki",
+    "meme",
+    "sdk",
+    "llm",
+    "function-calling"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsup": "^9.0.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}
