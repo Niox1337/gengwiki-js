@@ -33,3 +33,6 @@ export type {
   Tag,
   Turn,
 } from "./models";
+
+export { GengWiki, QUOTE_MODES } from "./client";
+export type { GengWikiOptions, Logger, QuoteMode } from "./client";
