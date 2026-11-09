@@ -7,4 +7,6 @@ export default defineConfig({
   clean: true,
   sourcemap: true,
   target: "node20",
+  // import.meta.url in the CommonJS build, for createRequire.
+  shims: true,
 });
