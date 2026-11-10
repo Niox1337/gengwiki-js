@@ -243,3 +243,57 @@ describe("client", () => {
     for (const f of readdirSync(c.home)) expect(readFileSync(join(c.home, f)).includes(KEY_A), f).toBe(false);
   });
 });
+
+describe("memePrompt", () => {
+  const lines = (prompt: string) => prompt.split("\n").filter((l) => l.startsWith("- "));
+
+  it("puts the named memes first and takes no extra requests", async () => {
+    const c = t.client();
+    const prompt = await c.memePrompt("YYDS 了", 2);
+    expect(lines(prompt)).toHaveLength(2);
+    expect(lines(prompt)[0]!.startsWith("- YYDS（永远的神）：YYDS的释义 使用场景：YYDS的场景")).toBe(true);
+    expect(prompt).toContain("宁可不用");
+    const sent = c.requestCount;
+    await c.memePrompt("躺平");
+    expect(slugs(await c.matchMemes("摆烂中"))).toEqual(["tang-ping"]);
+    expect(c.requestCount).toBe(sent);
+  });
+
+  it("survives a missing scope and an empty scope", async () => {
+    t.fake.keys[KEY_A]!.scopes = ["memes:read"];
+    const c = t.client();
+    expect(await c.memePrompt()).toContain("躺平");
+    t.fake.keys[KEY_A]!.scopes = ["persona:read"];
+    c.refresh();
+    expect(await c.memePrompt()).toBe("");
+  });
+
+  it("gives a subscribed tag at least half the free places and repeats nothing", async () => {
+    for (let i = 0; i < 100; i++) t.fake.memes[`hot-${i}`] = meme(`hot-${i}`, `热${i}`, 100 + i);
+    for (let i = 1; i < 7; i++) {
+      const m = meme(`game-${i}`, `游戏${i}`, 10 - i);
+      m.categories = ["游戏"];
+      t.fake.memes[m.slug] = m;
+    }
+    const c = t.client();
+    await c.subscribe("游戏");
+    for (const limit of [3, 4]) {
+      const got = lines(await c.memePrompt("", limit));
+      expect(got).toHaveLength(limit);
+      expect(got.filter((l) => l.includes("游戏")).length).toBeGreaterThanOrEqual(2);
+    }
+    // a meme bound to the key and on the tag's board shows once
+    t.fake.memes["tang-ping"]!.categories = ["游戏"];
+    t.fake.memes["tang-ping"]!.heat = 50;
+    c.refresh();
+    for (let i = 0; i < 20; i++) {
+      const prompt = await c.memePrompt("", 15);
+      expect(prompt.split("- 躺平").length).toBeLessThanOrEqual(2);
+      expect(new Set(lines(prompt)).size).toBe(lines(prompt).length);
+    }
+    expect(slugs(await c.matchMemes("游戏1"))).toEqual(["game-1"]);
+    expect(await c.matchMemes("游戏6")).toEqual([]);
+    expect(await c.matchMemes("游戏1", 3, { tags: [] })).toEqual([]);
+    expect(await c.memePrompt("", 4, { tags: [] })).not.toContain("游戏");
+  });
+});
