@@ -709,4 +709,63 @@ export class GengWiki {
     const expect = { ...(PERSON as Record<string, Shape>), memes: [{ slug: String, title: String }] } as Shape;
     return toPerson(await this.v1(`person:${wanted.toLowerCase()}`, `/people/${enc(wanted)}`, TTL_LIST, { shared: true, expect }));
   }
+
+  // ---------- lexicons ----------
+
+  /** @internal */
+  lexiconRows(): Promise<Row[]> {
+    return this.v1("lexicons", "/me/lexicons", TTL_LEXICON, { expect: [LEXICON] });
+  }
+
+  /** @internal */
+  entryRows(lexiconId: string): Promise<Row[]> {
+    return this.v1(`entries:${lexiconId}`, `/me/lexicons/${enc(lexiconId)}/entries`, TTL_LEXICON, { expect: [ENTRY] });
+  }
+
+  /** @internal Every entry of every lexicon of mine. */
+  async allEntries(): Promise<Row[]> {
+    const rows: Row[] = [];
+    for (const lex of await this.lexiconRows()) rows.push(...(await this.entryRows(lex.id)));
+    return rows;
+  }
+
+  async lexicons(): Promise<Lexicon[]> {
+    return (await this.lexiconRows()).map(toLexicon);
+  }
+
+  async lexiconEntries(lexiconId: string): Promise<LexiconEntry[]> {
+    return (await this.entryRows(lexiconId)).map(toLexiconEntry);
+  }
+
+  /** Search the entries of all my lexicons. The first call reads each lexicon once. */
+  async searchLexicons(q = "", limit = 20): Promise<LexiconEntry[]> {
+    return search.searchEntries(q, await this.allEntries(), Math.max(1, limit)).map(toLexiconEntry);
+  }
+
+  private post(path: string, body: unknown, expect: Shape): Promise<Row> {
+    return this.http.json("POST", `${this.baseUrl}/v1${path}`, { token: this.token(), body, expect });
+  }
+
+  /** Apply a write just made to the cached list, so writing does not force a re-read. */
+  private patchCached(key: string, change: (rows: Row[]) => Row[]): void {
+    const hit = this.store.get(this.ns, key);
+    if (hit && !isMissing(hit.value)) this.store.put(this.ns, key, change(hit.value));
+  }
+
+  async createLexicon(name: string, description = ""): Promise<Lexicon> {
+    const row = await this.post("/me/lexicons", { name, description }, LEXICON);
+    this.patchCached("lexicons", (rows) => [...rows, row]);
+    return toLexicon(row);
+  }
+
+  async addLexiconEntry(
+    lexiconId: string,
+    term: string,
+    { aliases = [], note = "", tags = [] }: { aliases?: string[]; note?: string; tags?: string[] } = {},
+  ): Promise<LexiconEntry> {
+    const row = await this.post(`/me/lexicons/${enc(lexiconId)}/entries`, { term, aliases, note, tags }, ENTRY);
+    this.patchCached(`entries:${lexiconId}`, (rows) => [...rows, row]);
+    this.patchCached("lexicons", (rows) => rows.map((x) => ({ ...x, entries: x.entries + (x.id === lexiconId ? 1 : 0) })));
+    return toLexiconEntry(row);
+  }
 }
