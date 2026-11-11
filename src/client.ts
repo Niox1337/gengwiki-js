@@ -1,12 +1,31 @@
 /** The client. Every read goes local first, the network is the fallback. */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { AuthError, ForbiddenError, NotFoundError, RateLimitError, UnavailableError } from "./errors";
-import { Http, type Params, type Shape, checkUrl } from "./http";
+import { AccountApiUnavailable, AuthError, BadResponseError, ForbiddenError, NotFoundError, RateLimitError, UnavailableError } from "./errors";
+import { Http, type Params, type Shape, checkUrl, contentType } from "./http";
 import { Keyring } from "./keyring";
-import { type Meme, type MemeSummary, type Tag, toMeme, toMemeSummary, toTag } from "./models";
+import {
+  type Lexicon,
+  type LexiconEntry,
+  type Meme,
+  type MemeSummary,
+  type Persona,
+  type Person,
+  type Sticker,
+  type StickerPack,
+  type Tag,
+  toLexicon,
+  toLexiconEntry,
+  toMeme,
+  toMemeSummary,
+  toPersona,
+  toPerson,
+  toSticker,
+  toStickerPack,
+  toTag,
+} from "./models";
 import * as search from "./search";
 import type { Row } from "./search";
 import { type Hit, Store, namespace } from "./store";
@@ -25,7 +44,12 @@ export const TTL_LIST = 6 * 3600;
 export const TTL_TRENDING = 15 * 60;
 /** A tag may get its first meme at any time, so an empty board checks again, at most this often. */
 export const TTL_EMPTY_BOARD = 60;
+export const TTL_LEXICON = 3600;
 export const TTL_MISSING = 3600;
+/** A persona may have been published since the catalog was read, so a miss checks again, at most this often. */
+export const TTL_CATALOG_MISS = 60;
+/** The persona catalog returns at most this many rows. */
+export const PERSONA_LIST_MAX = 60;
 /** A public wiki to ask about a word this one lacks. It only ever fills a gap, so it gets a short wait and fails quietly. */
 export const BACKUP_URL = "https://cnmeme.wiki/api/v1/public/memes";
 export const BACKUP_TIMEOUT = 2;
@@ -42,6 +66,25 @@ const isMissing = (value: unknown) => typeof value === "object" && value !== nul
 const MEME_ROW: Shape = { slug: String, title: String, aliases: Array, summary: String, heat: Number, updated_at: String };
 const MEME: Shape = { slug: String, title: String, updated_at: String };
 const TAG: Shape = { name: String };
+const PERSONA: Shape = { id: String, title: String };
+const CATALOG_ROW: Shape = { id: String, title: String, memes: Array, packs: Array };
+const PACK: Shape = { id: String, title: String, tags: Array, stickers: [{ id: String, caption: String }] };
+const PERSON: Shape = { name: String, aliases: Array, tags: Array, bio: String, quotes: Array };
+const LEXICON: Shape = { id: String, entries: Number };
+const ENTRY: Shape = { term: String, aliases: Array, note: String, tags: Array };
+const IMAGE_TYPES: Record<string, string> = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp" };
+
+/** The canonical form of a UUID. A sticker id names a file, so it must really be one. */
+function canonicalUuid(id: string): string {
+  const hex = id
+    .trim()
+    .toLowerCase()
+    .replace(/^urn:uuid:/, "")
+    .replace(/^\{(.*)\}$/, "$1")
+    .replaceAll("-", "");
+  if (!/^[0-9a-f]{32}$/.test(hex)) throw new TypeError(`${JSON.stringify(id)} is not a sticker id`);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 const BACKUP_ROW: Shape = { title: String, aliases: Array, summary: String };
 
 // "XX是什么梗", "XX这个梗啥意思". Asked often enough that explain() answers it before the model would reach for a tool.
@@ -518,5 +561,69 @@ export class GengWiki {
       if (!(e instanceof ForbiddenError)) throw e;
     }
     return search.searchMemes(q, [...rows.values()], limit).map(toMemeSummary);
+  }
+
+  // ---------- persona ----------
+
+  /** @internal */
+  personaRow(key: string): Promise<Row> {
+    return this.cached(namespace(key), "persona", `${this.baseUrl}/v1/persona`, TTL_LIST, { token: key, expect: PERSONA });
+  }
+
+  /** The persona bound to the current key, or null if it has none. */
+  async persona(): Promise<Persona | null> {
+    if (!this.key) return null;
+    try {
+      return toPersona(await this.personaRow(this.token()));
+    } catch (e) {
+      if (e instanceof NotFoundError) return null;
+      throw e;
+    }
+  }
+
+  /** Published personas to pick from. Where the site hides the catalog, the ones the saved keys are bound to. */
+  async personas(q = ""): Promise<Persona[]> {
+    q = q.trim();
+    let found: Row[];
+    try {
+      found = search.searchPersonas(q, await this.catalog(q, TTL_LIST));
+      if (!found.length) found = search.searchPersonas(q, await this.catalog(q, TTL_CATALOG_MISS));
+    } catch (e) {
+      if (!(e instanceof NotFoundError)) throw e;
+      const rows = Object.values(this.keyring.read().keys)
+        .filter((k) => k.persona_id)
+        .map((k) => ({ id: k.persona_id, title: k.persona_title ?? "" }));
+      found = search.searchPersonas(q, rows);
+    }
+    return found.map(toPersona);
+  }
+
+  private async catalog(q: string, ttl: number): Promise<Row[]> {
+    const url = `${this.siteUrl}/api/personas`;
+    const rows: Row[] = await this.cached(SHARED, "personas", url, ttl, { token: null, expect: [CATALOG_ROW] });
+    if (q && rows.length >= PERSONA_LIST_MAX) {
+      // The list is cut off, so only the server can search the rest.
+      return this.cached(SHARED, `personas:${q.toLowerCase()}`, url, ttl, { token: null, params: { q }, expect: [CATALOG_ROW] });
+    }
+    return rows;
+  }
+
+  /** @internal One persona from the catalog with its memes and packs, by exact id or title. */
+  async catalogRow(wanted: string): Promise<Row> {
+    const find = async (ttl: number) =>
+      (await this.catalog(wanted, ttl)).find((r) => wanted === r.id || wanted.toLowerCase() === r.title.toLowerCase());
+    let row: Row | undefined;
+    try {
+      row = (await find(TTL_LIST)) ?? (await find(TTL_CATALOG_MISS));
+    } catch (e) {
+      if (e instanceof NotFoundError) throw new AccountApiUnavailable(`${this.siteUrl} does not expose the persona catalog`);
+      throw e;
+    }
+    if (!row) {
+      const near = search.searchPersonas(wanted, await this.catalog(wanted, TTL_CATALOG_MISS)).map((r) => r.title);
+      const hint = near.length ? `, did you mean ${near.join(", ")}` : "";
+      throw new NotFoundError(`no published persona ${JSON.stringify(wanted)}${hint}`, 404, "not_found");
+    }
+    return row;
   }
 }
