@@ -626,4 +626,50 @@ export class GengWiki {
     }
     return row;
   }
+
+  // ---------- stickers ----------
+
+  /** @internal */
+  packs(): Promise<Row[]> {
+    return this.v1("packs", "/sticker-packs", TTL_LIST, { expect: [PACK] });
+  }
+
+  async stickerPacks(): Promise<StickerPack[]> {
+    return (await this.packs()).map(toStickerPack);
+  }
+
+  /** Search this key's stickers by caption, pack title or pack tag. The pack list is never cut off, so this is always local. */
+  async searchStickers(q = "", limit = 20): Promise<Sticker[]> {
+    return search.searchStickers(q, await this.packs(), Math.max(1, limit)).map(toSticker);
+  }
+
+  /** Path of the image on disk, downloaded once. Images never change and the site has a daily image budget. */
+  async stickerImage(stickerId: string): Promise<string> {
+    const sid = canonicalUuid(stickerId);
+    const folder = join(this.home, "stickers");
+    const saved = () => {
+      try {
+        const name = readdirSync(folder).find((f) => f.startsWith(`${sid}.`));
+        return name ? join(folder, name) : null;
+      } catch {
+        return null;
+      }
+    };
+    return saved() ?? this.once(`sticker\0${sid}`, async () => {
+      const found = saved();
+      if (found) return found;
+      // The image route takes no key and does not count against one.
+      const url = `${this.baseUrl}/v1/stickers/${sid}/image`;
+      const { body, headers } = await this.http.request("GET", url, { retries: 1 });
+      // This file is kept forever, so anything but a real image must not land here.
+      const suffix = IMAGE_TYPES[contentType(headers)];
+      if (!suffix) throw new BadResponseError(`expected an image from ${url}, got ${contentType(headers) || "no content type"}`, null, "bad_response");
+      mkdirSync(folder, { recursive: true });
+      const path = join(folder, sid + suffix);
+      const tmp = join(folder, `.${sid}.tmp`);
+      writeFileSync(tmp, body);
+      renameSync(tmp, path);
+      return path;
+    });
+  }
 }
