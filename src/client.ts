@@ -672,4 +672,41 @@ export class GengWiki {
       return path;
     });
   }
+
+  // ---------- people ----------
+
+  /** @internal */
+  linkedRows(): Promise<Row[]> {
+    return this.v1("people-linked", "/people/linked", TTL_LIST, { expect: [PERSON] });
+  }
+
+  /** The people picked for this key. */
+  async linkedPeople(): Promise<Person[]> {
+    return (await this.linkedRows()).map(toPerson);
+  }
+
+  private async allPeople(): Promise<Row[]> {
+    const rows: Row[] = [];
+    for (;;) {
+      const page: Row[] = await this.v1(`people:${rows.length}`, "/people", TTL_LIST, {
+        shared: true,
+        params: { limit: LIST_MAX, offset: rows.length },
+        expect: [PERSON],
+      });
+      rows.push(...page);
+      if (page.length < LIST_MAX) return rows;
+    }
+  }
+
+  /** Every published person, or those matching q. Not limited by the key's scope, so all keys share one copy. */
+  async people(q = ""): Promise<Person[]> {
+    return search.searchPeople(q, await this.allPeople()).map(toPerson);
+  }
+
+  /** One person by id, exact name or exact alias, with the memes that name them. */
+  async person(wanted: string): Promise<Person> {
+    wanted = wanted.trim();
+    const expect = { ...(PERSON as Record<string, Shape>), memes: [{ slug: String, title: String }] } as Shape;
+    return toPerson(await this.v1(`person:${wanted.toLowerCase()}`, `/people/${enc(wanted)}`, TTL_LIST, { shared: true, expect }));
+  }
 }
