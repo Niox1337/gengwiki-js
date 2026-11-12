@@ -14,6 +14,8 @@ import {
   type MemeSummary,
   type Persona,
   type Person,
+  type RateLimit,
+  type Status,
   type Sticker,
   type StickerPack,
   type Tag,
@@ -23,6 +25,7 @@ import {
   toMemeSummary,
   toPersona,
   toPerson,
+  toRateLimit,
   toSticker,
   toStickerPack,
   toTag,
@@ -861,4 +864,47 @@ export class GengWiki {
     return this.remove("people", name);
   }
 
+  // ---------- usage, always live ----------
+
+  /**
+   * What this key can do, the first thing to check when a bot never jokes.
+   *
+   * A scope the key lacks lands in missing. A bad key, or no wiki and nothing cached, still throws.
+   */
+  async status(): Promise<Status> {
+    const missing: string[] = [];
+    const read = async <T>(scope: string, fn: () => Promise<T>, empty: T): Promise<T> => {
+      try {
+        return await fn();
+      } catch (e) {
+        if (!(e instanceof ForbiddenError)) throw e;
+        missing.push(scope);
+        return empty;
+      }
+    };
+    const persona = await read("persona:read", () => this.persona(), null);
+    const memes = await read("memes:read", () => this.list(), []);
+    const packs = await read("stickers:read", () => this.packs(), []);
+    const people = await read("people:read", () => this.linkedRows(), []);
+    // shortcut: the board is shared, so a copy cached by another key hides a missing trending:read until it expires, ask the server per key if that matters
+    await read("trending:read", () => this.board(), []);
+    return {
+      persona: persona?.title ?? "",
+      memes: memes.length,
+      stickers: packs.reduce((n, p) => n + p.stickers.length, 0),
+      people: people.length,
+      quotes: people.reduce((n, p) => n + p.quotes.length, 0),
+      missing,
+      stale: this.stale,
+    };
+  }
+
+  /** Requests per day over the last 30 days, as the server counted them. */
+  async usage(): Promise<Row> {
+    return this.http.json("GET", `${this.baseUrl}/v1/me/usage`, { token: this.token(), retries: 1, expect: Object });
+  }
+
+  async rateLimit(): Promise<RateLimit> {
+    return toRateLimit(await this.http.json("GET", `${this.baseUrl}/v1/me/rate-limit`, { token: this.token(), retries: 1, expect: Object }));
+  }
 }
