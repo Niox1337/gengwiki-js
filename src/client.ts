@@ -167,6 +167,8 @@ export interface GengWikiOptions {
   logger?: Logger;
   /** A number from 0 up to 1, for the picks and rolls. Defaults to Math.random. */
   random?: () => number;
+  /** False keeps memes out of the prompt while there is no key. */
+  guestMemes?: boolean;
 }
 
 const now = () => Date.now() / 1000;
@@ -188,6 +190,7 @@ export class GengWiki {
   /** The folder for this API host. */
   readonly home: string;
   readonly backup: boolean;
+  readonly guestMemes: boolean;
   /** Keys saved on this machine, and the account API for making more. */
   readonly keys: Keys;
 
@@ -209,6 +212,7 @@ export class GengWiki {
     const o: GengWikiOptions = typeof options === "string" ? { apiKey: options } : options;
     this.log = o.logger ?? defaultLogger;
     this.backup = o.backup ?? true;
+    this.guestMemes = o.guestMemes ?? true;
     this.random = o.random ?? Math.random;
     this.backupUrl = o.backupUrl ?? BACKUP_URL;
     // The docs give the API address with /v1, so take it with or without.
@@ -245,6 +249,11 @@ export class GengWiki {
   /** @internal */
   get ns(): string {
     return namespace(this.key);
+  }
+
+  /** @internal */
+  get noMemes(): boolean {
+    return !this.key && !this.guestMemes;
   }
 
   /** True while a failed refresh has this client serving old copies. */
@@ -444,6 +453,7 @@ export class GengWiki {
 
   /** @internal Every meme a bot may bring up, each once. This key's own first, then the subscribed tags, then the hot board. A key without one of the scopes just has fewer. */
   async pool(tags?: string[]): Promise<Row[]> {
+    if (this.noMemes) return [];
     const rows = new Map<string, Row>();
     for (const read of [() => this.list(), () => this.tagTops(tags), () => this.extraBoard()]) {
       try {
@@ -496,6 +506,7 @@ export class GengWiki {
    * Saves the model a tool call on the most common question. With backup on, a word this wiki lacks is looked up there.
    */
   async explain(text: string, { tags }: TagOptions = {}): Promise<string> {
+    if (this.noMemes) return "";
     const m = ASKED.exec(text);
     const q = (m ? (m[1] ?? m[2] ?? "") : "").replace(FILLER, "");
     if (!q || NOT_A_WORD.has(q) || TRENDING.test(q)) return "";
