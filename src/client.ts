@@ -907,4 +907,43 @@ export class GengWiki {
   async rateLimit(): Promise<RateLimit> {
     return toRateLimit(await this.http.json("GET", `${this.baseUrl}/v1/me/rate-limit`, { token: this.token(), retries: 1, expect: Object }));
   }
+
+  // ---------- offline ----------
+
+  /**
+   * Download everything this key can see, so later calls need no network.
+   *
+   * Costs one request per meme the first time and nothing when run again. An interrupted sync resumes where it stopped.
+   */
+  async sync({ images = false }: { images?: boolean } = {}): Promise<{ memes: number; stickers: number; images: number; requests: number }> {
+    const before = this.requestCount;
+    const summary = { memes: 0, stickers: 0, images: 0, requests: 0 };
+    // A key without the scope has nothing to sync there, and a listed item may have been hidden since.
+    const allowed = async <T>(step: () => Promise<T>, fallback: T): Promise<T> => {
+      try {
+        return await step();
+      } catch (e) {
+        if (e instanceof ForbiddenError || e instanceof NotFoundError) return fallback;
+        throw e;
+      }
+    };
+    for (const row of await allowed(() => this.list(), [])) {
+      if (await allowed(() => this.meme(row.slug), null)) summary.memes++;
+    }
+    await allowed(() => this.persona(), null);
+    await allowed(() => this.trending(), []);
+    await allowed(() => this.tagTops(), []);
+    await allowed(() => this.tags(), []);
+    for (const pack of await allowed(() => this.stickerPacks(), [])) {
+      for (const sticker of pack.stickers) {
+        summary.stickers++;
+        if (images && (await allowed(() => this.stickerImage(sticker.id), null))) summary.images++;
+      }
+    }
+    await allowed(() => this.linkedPeople(), []);
+    await allowed(() => this.people(), []);
+    await allowed(() => this.searchLexicons(), []);
+    summary.requests = this.requestCount - before;
+    return summary;
+  }
 }
