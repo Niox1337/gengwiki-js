@@ -803,4 +803,61 @@ export class GengWiki {
     this.patchCached("lexicons", (rows) => rows.map((x) => ({ ...x, entries: x.entries + (x.id === lexiconId ? 1 : 0) })));
     return toLexiconEntry(row);
   }
+
+  // ---------- my words, stickers, personas and people ----------
+  // Private to the key's owner, so no review. Writing a name that exists updates it. Needs a key.
+
+  private async mine(method: string, path: string, options: { body?: unknown; params?: Params } = {}): Promise<Row> {
+    const row = await this.http.json<Row>(method, `${this.baseUrl}/v1/me/${path}`, { ...options, token: this.token(), expect: Object });
+    // shortcut: drops every cached read of this key so the next ones refetch, patch the cached lists instead if the refetches cost too much
+    this.store.expire(this.ns);
+    return row;
+  }
+
+  /** How many went. 0 if none had that name. */
+  private async remove(kind: string, name: string): Promise<number> {
+    try {
+      return (await this.mine("DELETE", `${kind}/${enc(name.trim())}`)).deleted;
+    } catch (e) {
+      if (e instanceof NotFoundError) return 0;
+      throw e;
+    }
+  }
+
+  /** Into my first lexicon, made on the first word. */
+  addWord(term: string, note = ""): Promise<Row> {
+    return this.mine("POST", "words", { body: { term, note } });
+  }
+
+  removeWord(term: string): Promise<number> {
+    return this.remove("words", term);
+  }
+
+  /** PNG, JPEG, GIF or WebP, at most 1 MB and 500x500. Goes into my private pack, which this key then links. */
+  async addSticker(image: Uint8Array, caption: string): Promise<Sticker> {
+    const row = await this.mine("POST", "stickers", { body: image, params: { caption } });
+    return toSticker({ id: row.id, caption: row.caption, url: row.url, pack_id: row.pack.id, pack_title: row.pack.title });
+  }
+
+  removeSticker(caption: string): Promise<number> {
+    return this.remove("stickers", caption);
+  }
+
+  /** A key's persona never changes, so use this one by making a new key with it on the site. */
+  addPersona(title: string, prompt: string, description = ""): Promise<Row> {
+    return this.mine("POST", "personas", { body: { title, prompt, description } });
+  }
+
+  removePersona(title: string): Promise<number> {
+    return this.remove("personas", title);
+  }
+
+  /** Linked to this key right away. */
+  addPerson(name: string, bio: string, quotes: Iterable<string> = []): Promise<Row> {
+    return this.mine("POST", "people", { body: { name, bio, quotes: [...quotes] } });
+  }
+
+  removePerson(name: string): Promise<number> {
+    return this.remove("people", name);
+  }
 }
