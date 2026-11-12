@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { AccountApiUnavailable, AuthError, BadResponseError, ForbiddenError, NotFoundError, RateLimitError, UnavailableError } from "./errors";
 import { Http, type Params, type Shape, checkUrl, contentType } from "./http";
 import { Keyring } from "./keyring";
+import { Keys } from "./keys";
 import {
   type Lexicon,
   type LexiconEntry,
@@ -184,6 +185,8 @@ export class GengWiki {
   /** The folder for this API host. */
   readonly home: string;
   readonly backup: boolean;
+  /** Keys saved on this machine, and the account API for making more. */
+  readonly keys: Keys;
 
   /** @internal */ readonly http: Http;
   /** @internal */ readonly store: Store;
@@ -224,6 +227,7 @@ export class GengWiki {
       const saved = this.keyring.read();
       this.key = (saved.current && saved.keys[saved.current]?.key) || null;
     }
+    this.keys = new Keys(this);
   }
 
   close(): void {
@@ -310,11 +314,11 @@ export class GengWiki {
   /** @internal */
   token(): string {
     if (!this.key) {
-      throw new AuthError(
-        `no API key. Create one at ${this.siteUrl}/me, then pass apiKey, set GENGWIKI_API_KEY, or save it with the gengwiki command`,
-        null,
-        "unauthorized",
-      );
+      const saved = this.keys.local().map((k) => k.name);
+      const hint = saved.length
+        ? `Pick a saved key with client.keys.use(), saved keys are ${saved.join(", ")}`
+        : `Create one at ${this.siteUrl}/me, then pass apiKey, set GENGWIKI_API_KEY, or save it with client.keys.add()`;
+      throw new AuthError(`no API key. ${hint}`, null, "unauthorized");
     }
     return this.key;
   }
@@ -590,7 +594,8 @@ export class GengWiki {
       if (!found.length) found = search.searchPersonas(q, await this.catalog(q, TTL_CATALOG_MISS));
     } catch (e) {
       if (!(e instanceof NotFoundError)) throw e;
-      const rows = Object.values(this.keyring.read().keys)
+      const rows = this.keys
+        .local()
         .filter((k) => k.persona_id)
         .map((k) => ({ id: k.persona_id, title: k.persona_title ?? "" }));
       found = search.searchPersonas(q, rows);
