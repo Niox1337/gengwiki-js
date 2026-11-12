@@ -30,3 +30,12 @@ describe("my words, stickers, personas and people", () => {
     await expect(t.client(null).addWord("绝绝子")).rejects.toThrow(AuthError);
   });
 });
+
+describe("without a key", () => {
+  it("rejects the promise rather than throwing", async () => {
+    const c = t.client(null);
+    const pending = c.lexicons();
+    expect(pending).toBeInstanceOf(Promise);
+    await expect(pending).rejects.toThrow(AuthError);
+  });
+});

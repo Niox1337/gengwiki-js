@@ -324,7 +324,7 @@ export class GengWiki {
   }
 
   /** @internal */
-  v1(key: string, path: string, ttl: number, options: Omit<CachedOptions, "token"> & { shared?: boolean }): Promise<any> {
+  async v1(key: string, path: string, ttl: number, options: Omit<CachedOptions, "token"> & { shared?: boolean }): Promise<any> {
     // Without a key the server answers as a guest, the top 20 hot memes and 10 people, so that copy is never shared.
     const ns = options.shared && this.key ? SHARED : this.ns;
     const token = path.startsWith("/me/") ? this.token() : this.key;
@@ -334,7 +334,7 @@ export class GengWiki {
   // ---------- memes ----------
 
   /** @internal Everything this key can see, up to LIST_MAX. Searches and detail lookups all lean on this one request. */
-  list(): Promise<Row[]> {
+  async list(): Promise<Row[]> {
     return this.v1("list", "/memes/search", TTL_LIST, { params: { q: "", limit: LIST_MAX }, expect: [MEME_ROW] });
   }
 
@@ -522,7 +522,7 @@ export class GengWiki {
    *
    * The memes named in text come first. The rest are a random pick, so a long list still gets used in turn.
    */
-  memePrompt(text = "", limit = 15, { tags }: TagOptions = {}): Promise<string> {
+  async memePrompt(text = "", limit = 15, { tags }: TagOptions = {}): Promise<string> {
     return this.memeBlock(text, limit, MEME_RULE, tagList(tags));
   }
 
@@ -570,7 +570,7 @@ export class GengWiki {
   // ---------- persona ----------
 
   /** @internal */
-  personaRow(key: string): Promise<Row> {
+  async personaRow(key: string): Promise<Row> {
     return this.cached(namespace(key), "persona", `${this.baseUrl}/v1/persona`, TTL_LIST, { token: key, expect: PERSONA });
   }
 
@@ -665,7 +665,7 @@ export class GengWiki {
   // ---------- stickers ----------
 
   /** @internal */
-  packs(): Promise<Row[]> {
+  async packs(): Promise<Row[]> {
     return this.v1("packs", "/sticker-packs", TTL_LIST, { expect: [PACK] });
   }
 
@@ -711,7 +711,7 @@ export class GengWiki {
   // ---------- people ----------
 
   /** @internal */
-  linkedRows(): Promise<Row[]> {
+  async linkedRows(): Promise<Row[]> {
     return this.v1("people-linked", "/people/linked", TTL_LIST, { expect: [PERSON] });
   }
 
@@ -748,12 +748,12 @@ export class GengWiki {
   // ---------- lexicons ----------
 
   /** @internal */
-  lexiconRows(): Promise<Row[]> {
+  async lexiconRows(): Promise<Row[]> {
     return this.v1("lexicons", "/me/lexicons", TTL_LEXICON, { expect: [LEXICON] });
   }
 
   /** @internal */
-  entryRows(lexiconId: string): Promise<Row[]> {
+  async entryRows(lexiconId: string): Promise<Row[]> {
     return this.v1(`entries:${lexiconId}`, `/me/lexicons/${enc(lexiconId)}/entries`, TTL_LEXICON, { expect: [ENTRY] });
   }
 
@@ -777,7 +777,7 @@ export class GengWiki {
     return search.searchEntries(q, await this.allEntries(), Math.max(1, limit)).map(toLexiconEntry);
   }
 
-  private post(path: string, body: unknown, expect: Shape): Promise<Row> {
+  private async post(path: string, body: unknown, expect: Shape): Promise<Row> {
     return this.http.json("POST", `${this.baseUrl}/v1${path}`, { token: this.token(), body, expect });
   }
 
@@ -825,11 +825,11 @@ export class GengWiki {
   }
 
   /** Into my first lexicon, made on the first word. */
-  addWord(term: string, note = ""): Promise<Row> {
+  async addWord(term: string, note = ""): Promise<Row> {
     return this.mine("POST", "words", { body: { term, note } });
   }
 
-  removeWord(term: string): Promise<number> {
+  async removeWord(term: string): Promise<number> {
     return this.remove("words", term);
   }
 
@@ -839,25 +839,26 @@ export class GengWiki {
     return toSticker({ id: row.id, caption: row.caption, url: row.url, pack_id: row.pack.id, pack_title: row.pack.title });
   }
 
-  removeSticker(caption: string): Promise<number> {
+  async removeSticker(caption: string): Promise<number> {
     return this.remove("stickers", caption);
   }
 
   /** A key's persona never changes, so use this one by making a new key with it on the site. */
-  addPersona(title: string, prompt: string, description = ""): Promise<Row> {
+  async addPersona(title: string, prompt: string, description = ""): Promise<Row> {
     return this.mine("POST", "personas", { body: { title, prompt, description } });
   }
 
-  removePersona(title: string): Promise<number> {
+  async removePersona(title: string): Promise<number> {
     return this.remove("personas", title);
   }
 
   /** Linked to this key right away. */
-  addPerson(name: string, bio: string, quotes: Iterable<string> = []): Promise<Row> {
+  async addPerson(name: string, bio: string, quotes: Iterable<string> = []): Promise<Row> {
     return this.mine("POST", "people", { body: { name, bio, quotes: [...quotes] } });
   }
 
-  removePerson(name: string): Promise<number> {
+  async removePerson(name: string): Promise<number> {
     return this.remove("people", name);
   }
+
 }
