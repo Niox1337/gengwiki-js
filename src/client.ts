@@ -585,6 +585,36 @@ export class GengWiki {
     }
   }
 
+  /**
+   * Switch to a persona by title or id. A key binds one persona for life, so switching means switching keys.
+   *
+   * A saved key bound to it is used at once, with no request once its persona has been read. With no such key
+   * and a login, one is created and saved, the same way the website does it.
+   */
+  async usePersona(persona: string): Promise<Persona> {
+    let name = await this.keys.nameForPersona(persona);
+    if (name === null) {
+      if (!this.keys.loggedIn) {
+        const known = this.keys
+          .local()
+          .flatMap((k) => (k.persona_title ? [k.persona_title] : []))
+          .sort();
+        throw new NotFoundError(
+          `no saved key is bound to persona ${JSON.stringify(persona)}, saved personas are ${known.join(", ") || "none"}. ` +
+            "Save a key with keys.add(), or log in with keys.login() to create one",
+          404,
+          "not_found",
+        );
+      }
+      const row = await this.catalogRow(persona);
+      name = (await this.keys.create(row.title, { persona: row.id })).name;
+    }
+    // Read before switching, so a failure leaves the old persona on.
+    const row = await this.personaRow(this.keys.secret(name));
+    this.keys.use(name);
+    return toPersona(row);
+  }
+
   /** Published personas to pick from. Where the site hides the catalog, the ones the saved keys are bound to. */
   async personas(q = ""): Promise<Persona[]> {
     q = q.trim();

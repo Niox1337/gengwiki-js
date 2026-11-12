@@ -1,10 +1,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GengWiki } from "../src/client";
+import { GengWiki, TTL_CATALOG_MISS } from "../src/client";
 import { AccountApiUnavailable, AuthError, NotFoundError } from "../src/errors";
 import { namespace } from "../src/store";
-import { KEY_A, KEY_B } from "./fake";
+import { KEY_A, KEY_B, PACK, PERSONA_A, PERSONA_B } from "./fake";
 import { setup } from "./helpers";
 
 const t = setup();
@@ -84,6 +84,121 @@ describe("keys saved on this machine", () => {
     } finally {
       c.close();
     }
+  });
+});
+
+describe("usePersona", () => {
+  const saved = () => {
+    const c = t.client(null);
+    c.keys.add("a", KEY_A);
+    c.keys.add("b", KEY_B);
+    return c;
+  };
+
+  it("changes the prompt and the scope", async () => {
+    const c = saved();
+    expect((await c.usePersona("温柔姐姐")).prompt).toBe("你是温柔姐姐");
+    expect(await slugs(c)).toEqual(["yyds"]);
+    expect((await c.persona())!.id).toBe(PERSONA_B);
+    expect((await c.usePersona(PERSONA_A)).title).toBe("毒舌老哥");
+    expect(new Set(await slugs(c))).toEqual(new Set(["tang-ping", "yyds"]));
+  });
+
+  it("is free once both personas were seen", async () => {
+    const c = saved();
+    await c.usePersona("毒舌老哥");
+    await c.usePersona("温柔姐姐");
+    await c.searchMemes();
+    const before = c.requestCount;
+    for (let i = 0; i < 5; i++) {
+      await c.usePersona("毒舌老哥");
+      await c.persona();
+      await c.usePersona("温柔姐姐");
+      await c.persona();
+      await c.searchMemes("yyds");
+    }
+    expect(c.requestCount).toBe(before);
+  });
+
+  it("sees an edit after refresh on every saved key", async () => {
+    const c = saved();
+    await c.usePersona("温柔姐姐");
+    await c.usePersona("毒舌老哥");
+    t.fake.personas[PERSONA_B]!.prompt = "改过了";
+    c.refresh();
+    expect((await c.usePersona("温柔姐姐")).prompt).toBe("改过了");
+  });
+
+  it("finds a renamed persona on the saved key", async () => {
+    const c = saved();
+    await c.usePersona("温柔姐姐");
+    t.fake.personas[PERSONA_B]!.title = "新名字";
+    c.refresh();
+    expect((await c.usePersona("新名字")).id).toBe(PERSONA_B);
+    expect(c.keys.local()).toHaveLength(2);
+  });
+
+  it("is remembered across a restart", async () => {
+    await saved().usePersona("温柔姐姐");
+    const c = t.client(null);
+    expect((await c.persona())!.title).toBe("温柔姐姐");
+    expect(c.requestCount).toBe(0);
+  });
+
+  it("keeps the old persona when it fails", async () => {
+    const c = saved();
+    await expect(c.usePersona("没有这个人设")).rejects.toThrow(/log in/);
+    expect((await c.persona())!.title).toBe("毒舌老哥");
+  });
+
+  it("skips a revoked key", async () => {
+    const c = saved();
+    t.fake.keys[KEY_A]!.revoked = true;
+    expect((await c.usePersona("温柔姐姐")).title).toBe("温柔姐姐");
+  });
+
+  it("creates the key with the persona's scope after a login", async () => {
+    const c = t.client(null);
+    await c.keys.login("me@example.com", "correct horse");
+    expect((await c.usePersona("毒舌老哥")).prompt).toBe("你是毒舌老哥");
+    const made = Object.values(t.fake.keys).find((k) => k.name === "毒舌老哥")!;
+    expect([made.persona, made.memes, made.packs]).toEqual([PERSONA_A, ["tang-ping"], [PACK]]);
+    expect(await slugs(c)).toEqual(["tang-ping"]);
+    const count = Object.keys(t.fake.keys).length;
+    await c.usePersona("毒舌老哥");
+    expect(Object.keys(t.fake.keys)).toHaveLength(count);
+  });
+
+  it("names the published persona on a near miss", async () => {
+    const c = t.client(null);
+    await c.keys.login("me@example.com", "correct horse");
+    await expect(c.usePersona("姐姐")).rejects.toThrow(/温柔姐姐/);
+    expect(t.fake.count("/api/personas")).toBe(1);
+    expect(Object.values(t.fake.keys).map((k) => k.name)).not.toContain("姐姐");
+  });
+
+  it("finds a newly published persona without waiting a day", async () => {
+    const published = t.fake.personas[PERSONA_B]!;
+    delete t.fake.personas[PERSONA_B];
+    const c = t.client(null);
+    await c.keys.login("me@example.com", "correct horse");
+    expect(await c.personas()).toHaveLength(1);
+    await expect(c.usePersona("温柔姐姐")).rejects.toThrow(NotFoundError);
+    expect(t.fake.count("/api/personas")).toBe(1);
+    t.fake.personas[PERSONA_B] = published;
+    const later = Date.now() + (TTL_CATALOG_MISS + 1) * 1000;
+    vi.spyOn(Date, "now").mockReturnValue(later);
+    expect((await c.usePersona("温柔姐姐")).prompt).toBe("你是温柔姐姐");
+    expect(t.fake.count("/api/personas")).toBe(2);
+  });
+
+  it("lists the saved keys' personas where the site hides the catalog", async () => {
+    t.fake.accountOpen = false;
+    const c = saved();
+    await c.usePersona("温柔姐姐");
+    expect(new Set((await c.personas()).map((p) => p.title))).toEqual(new Set(["毒舌老哥", "温柔姐姐"]));
+    await c.personas();
+    expect(t.fake.count("/api/personas")).toBe(1);
   });
 });
 
