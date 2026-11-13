@@ -33,6 +33,7 @@ import {
 import * as search from "./search";
 import type { Row } from "./search";
 import { type Hit, Store, namespace } from "./store";
+import { Tools } from "./tools";
 
 export const DEFAULT_API_URL = "https://api.gengwiki.com";
 export const DEFAULT_SITE_URL = "https://gengwiki.com";
@@ -169,6 +170,22 @@ export interface GengWikiOptions {
   random?: () => number;
   /** False keeps memes out of the prompt while there is no key. */
   guestMemes?: boolean;
+  /** What the model may do with a person's quotes: off, cite, use or both. Defaults to cite. */
+  quotes?: QuoteMode;
+  /** The share of replies, from 0 to 1, where turn() lets the model use a meme unasked. It still decides by context whether to. Defaults to 0.2. */
+  memeFrequency?: number;
+  /** The same for quotes. Defaults to 1. */
+  quoteFrequency?: number;
+  /** The same for stickers. Defaults to 1. */
+  stickerFrequency?: number;
+}
+
+function frequency(name: string, value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !(value >= 0 && value <= 1)) {
+    throw new TypeError(`${name} must be a number from 0 to 1, got ${JSON.stringify(value)}`);
+  }
+  return value;
 }
 
 const now = () => Date.now() / 1000;
@@ -191,6 +208,12 @@ export class GengWiki {
   readonly home: string;
   readonly backup: boolean;
   readonly guestMemes: boolean;
+  quotes: QuoteMode;
+  memeFrequency: number;
+  quoteFrequency: number;
+  stickerFrequency: number;
+  /** Tool definitions and a runner for function calling. */
+  readonly tools: Tools;
   /** Keys saved on this machine, and the account API for making more. */
   readonly keys: Keys;
 
@@ -213,6 +236,12 @@ export class GengWiki {
     this.log = o.logger ?? defaultLogger;
     this.backup = o.backup ?? true;
     this.guestMemes = o.guestMemes ?? true;
+    const quotes = o.quotes ?? "cite";
+    if (!QUOTE_MODES.includes(quotes)) throw new TypeError(`quotes must be one of ${QUOTE_MODES.join(", ")}, got ${JSON.stringify(quotes)}`);
+    this.quotes = quotes;
+    this.memeFrequency = frequency("memeFrequency", o.memeFrequency, 0.2);
+    this.quoteFrequency = frequency("quoteFrequency", o.quoteFrequency, 1);
+    this.stickerFrequency = frequency("stickerFrequency", o.stickerFrequency, 1);
     this.random = o.random ?? Math.random;
     this.backupUrl = o.backupUrl ?? BACKUP_URL;
     // The docs give the API address with /v1, so take it with or without.
@@ -235,6 +264,7 @@ export class GengWiki {
       this.key = (saved.current && saved.keys[saved.current]?.key) || null;
     }
     this.keys = new Keys(this);
+    this.tools = new Tools(this);
   }
 
   close(): void {
