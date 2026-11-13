@@ -35,7 +35,7 @@ export type {
 } from "./models";
 
 export { GengWiki, QUOTE_MODES } from "./client";
-export type { GengWikiOptions, Logger, QuoteMode, TagOptions } from "./client";
+export type { GengWikiOptions, Logger, QuoteMode, TagOptions, TurnOptions } from "./client";
 export { Keys } from "./keys";
 export type { CreateKeyOptions } from "./keys";
 export { Tools } from "./tools";
