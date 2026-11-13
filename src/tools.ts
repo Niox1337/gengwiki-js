@@ -205,6 +205,8 @@ function handlers(c: GengWiki): Record<string, Handler> {
   };
 }
 
+const get = (obj: any, name: string): any => (obj === null || obj === undefined ? undefined : obj[name]);
+
 export class Tools {
   private readonly handlers: Record<string, Handler>;
 
@@ -248,5 +250,39 @@ export class Tools {
       }
     }
     return JSON.stringify(result);
+  }
+
+  /** Run every tool call in a model reply and return the messages to append. Takes SDK objects or plain objects, from any of the three APIs. */
+  async run(message: any): Promise<Row[]> {
+    const choices = get(message, "choices");
+    // handed the whole chat completion
+    if (Array.isArray(choices) && choices.length) message = get(choices[0], "message");
+    const output = get(message, "output");
+    if (Array.isArray(output)) {
+      const replies: Row[] = [];
+      for (const item of output) {
+        if (get(item, "type") !== "function_call") continue;
+        const content = await this.call(get(item, "name"), get(item, "arguments"));
+        replies.push({ type: "function_call_output", call_id: get(item, "call_id"), output: content });
+      }
+      return replies;
+    }
+    const calls = get(message, "tool_calls");
+    if (Array.isArray(calls) && calls.length) {
+      const replies: Row[] = [];
+      for (const call of calls) {
+        const fn = get(call, "function");
+        replies.push({ role: "tool", tool_call_id: get(call, "id"), content: await this.call(get(fn, "name"), get(fn, "arguments")) });
+      }
+      return replies;
+    }
+    const content = get(message, "content");
+    const blocks = Array.isArray(content) ? content.filter((b) => get(b, "type") === "tool_use") : [];
+    if (!blocks.length) return [];
+    const results: Row[] = [];
+    for (const b of blocks) {
+      results.push({ type: "tool_result", tool_use_id: get(b, "id"), content: await this.call(get(b, "name"), get(b, "input")) });
+    }
+    return [{ role: "user", content: results }];
   }
 }

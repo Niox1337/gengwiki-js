@@ -111,3 +111,43 @@ describe("definitions and calls", () => {
     expect(got.error.message).toContain("tang-ping");
   });
 });
+
+describe("run", () => {
+  it("handles chat completions messages", async () => {
+    const c = t.client();
+    const message = { content: null, tool_calls: [{ id: "1", function: { name: "search_memes", arguments: '{"q": "躺平"}' } }] };
+    const [reply] = await c.tools.run(message);
+    expect([reply!.role, reply!.tool_call_id]).toEqual(["tool", "1"]);
+    expect(reply!.content).toContain("tang-ping");
+  });
+
+  it("handles a whole chat completion", async () => {
+    const call = { id: "1", function: { name: "search_memes", arguments: '{"q": "躺平"}' } };
+    const [reply] = await t.client().tools.run({ choices: [{ message: { content: null, tool_calls: [call] } }] });
+    expect(reply!.tool_call_id).toBe("1");
+  });
+
+  it("handles Claude messages", async () => {
+    const message = { content: [{ type: "text", text: "查一下" }, { type: "tool_use", id: "t", name: "search_memes", input: { q: "躺平" } }] };
+    const [reply] = await t.client().tools.run(message);
+    expect(reply!.role).toBe("user");
+    expect(reply!.content[0].tool_use_id).toBe("t");
+    expect(reply!.content[0].content).toContain("tang-ping");
+  });
+
+  it("handles Responses API output", async () => {
+    const c = t.client();
+    const text = { type: "message", content: [] };
+    const call = { type: "function_call", id: "fc", call_id: "c", name: "search_memes", arguments: '{"q": "躺平"}' };
+    const [reply] = await c.tools.run({ output: [text, call] });
+    expect([reply!.type, reply!.call_id]).toEqual(["function_call_output", "c"]);
+    expect(reply!.output).toContain("tang-ping");
+    expect(await c.tools.run({ output: [text] })).toEqual([]);
+  });
+
+  it("returns nothing when there are no calls", async () => {
+    const c = t.client();
+    expect(await c.tools.run({ content: "你好" })).toEqual([]);
+    expect(await c.tools.run({ content: "你好", tool_calls: null })).toEqual([]);
+  });
+});
