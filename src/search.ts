@@ -7,7 +7,7 @@ const WORD = /[\p{L}\p{N}]+/gu;
 /** Runs of whitespace as one space, trimmed. */
 export const squash = (text: string): string => text.split(/\s+/).filter(Boolean).join(" ");
 
-/** What pg_trgm's show_trgm returns: lowercased alphanumeric words, padded with two spaces in front and one behind. */
+/** Three-character pieces of the lowercased alphanumeric words, each word padded with two spaces in front and one behind. */
 function trigrams(text: string): Set<string> {
   const grams = new Set<string>();
   for (const word of text.toLowerCase().match(WORD) ?? []) {

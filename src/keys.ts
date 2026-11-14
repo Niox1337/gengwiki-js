@@ -15,7 +15,7 @@ const enc = encodeURIComponent;
 const unique = (items: string[]) => [...new Set(items)];
 
 export interface CreateKeyOptions {
-  /** A persona by title or id. As on the website, it also brings in its memes, sticker packs and people. */
+  /** A persona by title or id. It also brings in its memes, sticker packs and people. */
   persona?: string;
   memes?: string[];
   packs?: string[];
@@ -169,7 +169,7 @@ export class Keys {
     try {
       return await this.c.http.json<T>(method, `${this.c.siteUrl}/api${path}`, { token, body, expect });
     } catch (e) {
-      // A real answer from the backend always has an error code, anything else came from the website in front.
+      // An error without a code did not come from the account API, so the site does not serve it.
       if (e instanceof GengWikiError && !(e instanceof UnavailableError) && e.code === null) {
         throw new AccountApiUnavailable(
           `${this.c.siteUrl} does not expose the account API. Create keys on the website and save them with keys.add()`,

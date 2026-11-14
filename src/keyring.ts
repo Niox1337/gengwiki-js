@@ -1,6 +1,5 @@
 /**
  * Saved API keys, the login token and subscribed tags, in one JSON file only this user can read.
- * The format is the Python SDK's, so both read the keys the other saved.
  *
  * With @napi-rs/keyring installed the secrets go to the OS keychain, and the file keeps only a ref to each.
  */
@@ -192,7 +191,7 @@ export class Keyring {
     });
   }
 
-  /** A directory as the lock, since mkdir either creates it or fails on every platform. The Python SDK locks a different file. */
+  /** A directory as the lock, since mkdir either creates it or fails on every platform. */
   private exclusive<T>(run: () => T): T {
     const lock = `${this.path}.jslock`;
     for (;;) {

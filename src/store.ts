@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { rmSync } from "node:fs";
 
-// The table name carries the format version, a new format simply starts empty. The same file works for the Python SDK.
+// The table name carries the format version, a new format simply starts empty.
 const SCHEMA = "create table if not exists cache_v1 (ns text, key text, value text, fetched_at real, primary key (ns, key))";
 
 /** Cache rows are filed under a hash, the key itself never reaches the cache. */

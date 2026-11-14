@@ -263,7 +263,7 @@ export class GengWiki {
     this.stickerFrequency = frequency("stickerFrequency", o.stickerFrequency, 1);
     this.random = o.random ?? Math.random;
     this.backupUrl = o.backupUrl ?? BACKUP_URL;
-    // The docs give the API address with /v1, so take it with or without.
+    // The API address is taken with or without /v1.
     this.baseUrl = checkUrl(o.baseUrl || process.env.GENGWIKI_API_URL || DEFAULT_API_URL).replace(/\/v1$/, "");
     this.siteUrl = checkUrl(o.siteUrl || process.env.GENGWIKI_SITE_URL || DEFAULT_SITE_URL);
     // One folder per API host, so a key saved for one host is never sent to another.
@@ -703,7 +703,7 @@ export class GengWiki {
    * Switch to a persona by title or id. A key binds one persona for life, so switching means switching keys.
    *
    * A saved key bound to it is used at once, with no request once its persona has been read. With no such key
-   * and a login, one is created and saved, the same way the website does it.
+   * and a login, one is created and saved with the persona's memes, sticker packs and people.
    */
   async usePersona(persona: string): Promise<Persona> {
     let name = await this.keys.nameForPersona(persona);

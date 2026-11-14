@@ -1,5 +1,5 @@
 /**
- * A stand-in for both gengwiki services on one port, following the API and the website backend.
+ * A stand-in for both gengwiki services, the API and the website, on one port.
  * It counts every request, because request counts are what these tests are about.
  */
 
@@ -87,7 +87,7 @@ export class Fake {
   backup: Row[] = [];
   lexicons: Record<string, Row> = {};
   entries: Record<string, Row[]> = {};
-  /** By name, like the API's upserts. */
+  /** Keyed by name, so writing a name that exists replaces it. */
   mine: Record<string, Record<string, Row>> = { words: {}, stickers: {}, personas: {}, people: {} };
   hits: [string, string][] = [];
   /** Answer everything with this status. */
@@ -144,7 +144,7 @@ export class Fake {
     };
   }
 
-  /** A call without a key, like the API's guest caller. The top 20 hot memes and the first 10 people. */
+  /** A call without a key. It sees the top 20 hot memes and the first 10 people. */
   guest(): FakeKey {
     const top = Object.values(this.memes)
       .sort((a, b) => b.heat - a.heat)
