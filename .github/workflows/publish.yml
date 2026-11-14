@@ -10,6 +10,7 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # npm's trusted publisher is tied to this environment, so no token is stored anywhere.
     environment: npm
     permissions:
       contents: read
@@ -25,7 +26,6 @@ jobs:
         run: |
           test "v$(node -p 'require("./package.json").version')" = "$GITHUB_REF_NAME"
           grep -q "VERSION = \"${GITHUB_REF_NAME#v}\"" src/version.ts
+      - run: npm install -g npm@latest
       - run: npm ci
-      - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - run: npm publish --access public
